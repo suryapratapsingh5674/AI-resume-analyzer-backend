@@ -40,7 +40,11 @@ const registerUser = async (req, res) => {
       { expiresIn: "7d" },
     );
 
-    res.cookie("token", token);
+    res.cookie("token", token, {
+  httpOnly: true,
+  secure: true,        // MUST for HTTPS (Render uses HTTPS)
+  sameSite: "None",    // MUST for cross-origin (Vercel ↔ Render)
+});
 
     return res.status(200).json({
       mesage: " new user created successfully, ",
@@ -83,7 +87,11 @@ const loginUser = async (req, res) => {
     expiresIn: "7d",
   });
 
-  res.cookie("token", token);
+  res.cookie("token", token, {
+  httpOnly: true,
+  secure: true,        // MUST for HTTPS (Render uses HTTPS)
+  sameSite: "None",    // MUST for cross-origin (Vercel ↔ Render)
+});
 
   return res.status(200).json({
     message: "logined in successfully.",
