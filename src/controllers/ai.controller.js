@@ -115,31 +115,39 @@ const generateresumePdf = async (req, res) => {
     });
   }
 
-  const interview = await interviewModel.findOne({
-    _id: interviewId,
-    user: req.user._id,
-  });
+  try {
+    const interview = await interviewModel.findOne({
+      _id: interviewId,
+      user: req.user._id,
+    });
 
-  if (!interview) {
-    return res.status(404).json({
-      message: "interview not found.",
+    if (!interview) {
+      return res.status(404).json({
+        message: "interview not found.",
+      });
+    }
+
+    const { resume, selfDescription, jobDescription } = interview;
+
+    const pdfBuffer = await generateResumePdf({
+      resume,
+      selfDescription,
+      jobDescription,
+    });
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename=resume_${interviewId}.pdf`,
+      "Content-Length": pdfBuffer.length,
+    });
+
+    return res.send(pdfBuffer);
+  } catch (error) {
+    console.error("Error generating resume PDF:", error);
+    return res.status(500).json({
+      message: "Failed to generate resume PDF.",
     });
   }
-
-  const { resume, selfDescription, jobDescription } = interview;
-
-  const pdfBuffer = await generateResumePdf({
-    resume,
-    selfDescription,
-    jobDescription,
-  });
-
-  res.set({
-    "Content-Type": "application/pdf",
-    "Content-Disposition": `attachment; filename=resume_${interviewId}.pdf`,
-  });
-
-  res.send(pdfBuffer);
 };
 
 export { aiController, getInterviewById, getAllInterview, generateresumePdf };
