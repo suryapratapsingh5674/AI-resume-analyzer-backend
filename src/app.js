@@ -10,7 +10,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(
   cors({
-    origin: "ai-resume-analyzer-frontend-nu.vercel.app",
+    origin: "https://ai-resume-analyzer-frontend-nu.vercel.app",
     credentials: true,
   }),
 );
