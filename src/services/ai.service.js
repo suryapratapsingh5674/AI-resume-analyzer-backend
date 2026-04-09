@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import puppeteer from "puppeteer";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -113,12 +114,125 @@ jobDescription: ${jobDescription || "Not provided"}`;
 }
 
 async function generatePdfFromHtml(htmlContent) {
-  const browser = await puppeteer.launch();
-  const page = await browser.newPage();
-  await page.setContent(htmlContent, { waitUntil: "networkidle0" });
-  const pdfBuffer = await page.pdf({ format: "A4", margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" } });
-  await browser.close();
-  return pdfBuffer;
+  const launchOptions = {
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--no-zygote",
+    ],
+    timeout: 30000,
+  };
+
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  const browser = await puppeteer.launch(launchOptions);
+
+  try {
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    });
+
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: "16mm",
+        bottom: "16mm",
+        left: "12mm",
+        right: "12mm",
+      },
+    });
+
+    return pdfBuffer;
+  } finally {
+    await browser.close();
+  }
+}
+
+const stripHtml = (html) =>
+  html
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const wrapText = (text, maxCharsPerLine = 90) => {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+
+  for (const word of words) {
+    if (!line) {
+      line = word;
+      continue;
+    }
+
+    if (`${line} ${word}`.length > maxCharsPerLine) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = `${line} ${word}`;
+    }
+  }
+
+  if (line) {
+    lines.push(line);
+  }
+
+  return lines;
+};
+
+async function generateFallbackPdfFromHtml(htmlContent) {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const page = pdfDoc.addPage([595.28, 841.89]);
+
+  const fontSize = 11;
+  const lineHeight = 15;
+  const marginX = 50;
+  const marginTop = 60;
+  const marginBottom = 60;
+  const text = stripHtml(htmlContent);
+  const lines = wrapText(text, 95);
+
+  let y = page.getHeight() - marginTop;
+
+  page.drawText("AI Generated Resume", {
+    x: marginX,
+    y,
+    size: 16,
+    font,
+    color: rgb(0.07, 0.07, 0.07),
+  });
+
+  y -= 28;
+
+  for (const line of lines) {
+    if (y < marginBottom) {
+      break;
+    }
+
+    page.drawText(line, {
+      x: marginX,
+      y,
+      size: fontSize,
+      font,
+      color: rgb(0.12, 0.12, 0.12),
+    });
+
+    y -= lineHeight;
+  }
+
+  return Buffer.from(await pdfDoc.save());
 }
 
 async function generateResumePdf({ resume, selfDescription, jobDescription }) {
@@ -158,8 +272,15 @@ and try to give style to resume content that can be fit within 1 page when conve
 
   const parsedJson = JSON.parse(response.text);
   const result = resumePdfSchema.parse(parsedJson);
-  const pdfBuffer = await generatePdfFromHtml(result.html);
-  return pdfBuffer;
+
+  try {
+    const pdfBuffer = await generatePdfFromHtml(result.html);
+    return pdfBuffer;
+  } catch (error) {
+    console.error("Puppeteer PDF generation failed, using fallback:", error);
+    const fallbackBuffer = await generateFallbackPdfFromHtml(result.html);
+    return fallbackBuffer;
+  }
 }
 
 export { generateInterviewReport, generateResumePdf };
